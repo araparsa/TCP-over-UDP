@@ -12,10 +12,14 @@ public class TCPServerSocketImpl extends TCPServerSocket {
     private int ackNumber;
     private int seqNumber;
     private int destPort;
+    private int port;
     private InetAddress destIP;
     private Random random = new Random();
+    private TCPSocket tcpSocket = null;
+
     public TCPServerSocketImpl(int port) throws Exception{
         super(port);
+        this.port = port;
         this.socket= new EnhancedDatagramSocket(port);
         this.handShakeState = handShakeStates.IDLE;
         // binding to port
@@ -23,7 +27,7 @@ public class TCPServerSocketImpl extends TCPServerSocket {
     }
 
     @Override
-    public TCPSocket accept() throws IOException {
+    public TCPSocket accept() throws Exception {
         while(true){
             switch(this.handShakeState){
                 case IDLE:
@@ -40,7 +44,14 @@ public class TCPServerSocketImpl extends TCPServerSocket {
 //                        break;
                     }
                 case WAIT_FOR_ACK:
-                    return null;
+                    DatagramPacket ackPacket = this.receivePacket();
+                    TCPPacketData ackTCPPacketData = packetHandler.createTCPObject(ackPacket);
+                    if(!ackTCPPacketData.isSYN() && ackTCPPacketData.getAckNum() == this.seqNumber+1){
+                        this.handShakeState = handShakeStates.CONNECTION_ESTABLISHED;
+                    }
+                case CONNECTION_ESTABLISHED:
+                    this.tcpSocket= new TCPSocketImpl(this.destIP.getHostName(), this.port, this.destIP.getHostName(), this.destPort); // srcIP = destIP
+                    return this.tcpSocket;
             }
         }
         //wait for SYN from client

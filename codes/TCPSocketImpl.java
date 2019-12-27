@@ -49,9 +49,6 @@ public class TCPSocketImpl extends TCPSocket {
                     }
                 case CONNECTION_ESTABLISHED:
                     return;
-
-
-
             }
         }
     }
