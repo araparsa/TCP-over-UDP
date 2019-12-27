@@ -26,6 +26,7 @@ public class TCPSocketImpl extends TCPSocket {
 
         this.startHandShake();
     }
+
     public void startHandShake() throws IOException {
         while(true){
             switch (this.handShakeState){
@@ -36,6 +37,7 @@ public class TCPSocketImpl extends TCPSocket {
                     this.socket = new EnhancedDatagramSocket(this.srcPort);
                     this.socket.send(synPacket);
                     this.handShakeState = handShakeStates.WAIT_FOR_SYNACK;
+                    break;
                 case WAIT_FOR_SYNACK:
                     //TODO: Timeout Handling
                     DatagramPacket synackPacket = this.receivePacket();

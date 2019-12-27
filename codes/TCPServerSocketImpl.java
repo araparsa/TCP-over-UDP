@@ -41,7 +41,7 @@ public class TCPServerSocketImpl extends TCPServerSocket {
                         DatagramPacket synAckPacket = packetHandler.createDatagramPacket(true, false, this.seqNumber, tcpPacketData.getSeqNum() + 1, null, this.destPort, this.destIP);
                         this.socket.send(synAckPacket);
                         this.handShakeState = handShakeStates.WAIT_FOR_ACK;
-//                        break;
+                        break;
                     }
                 case WAIT_FOR_ACK:
                     DatagramPacket ackPacket = this.receivePacket();
@@ -49,13 +49,12 @@ public class TCPServerSocketImpl extends TCPServerSocket {
                     if(!ackTCPPacketData.isSYN() && ackTCPPacketData.getAckNum() == this.seqNumber+1){
                         this.handShakeState = handShakeStates.CONNECTION_ESTABLISHED;
                     }
+                    break;
                 case CONNECTION_ESTABLISHED:
                     this.tcpSocket= new TCPSocketImpl(this.destIP.getHostName(), this.port, this.destIP.getHostName(), this.destPort); // srcIP = destIP
                     return this.tcpSocket;
             }
         }
-        //wait for SYN from client
-//        return null;
     }
 
     private DatagramPacket receivePacket() throws IOException {
