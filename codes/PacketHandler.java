@@ -43,9 +43,11 @@ public class PacketHandler {
     }
 
     public TCPPacketData createTCPObject(DatagramPacket data){
+        System.out.println("creating tcp object");
         ByteArrayInputStream bis = new ByteArrayInputStream(data.getData());
+        System.out.println(bis);
         ObjectInput in = null;
-        TCPPacketData tcpPacketData = null;
+        TCPPacketData tcpPacketData = new TCPPacketData(false, false, 0, 0, null);
         try {
             in = new ObjectInputStream(bis);
             tcpPacketData = (TCPPacketData) in.readObject();

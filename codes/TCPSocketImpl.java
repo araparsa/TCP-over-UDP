@@ -23,7 +23,6 @@ public class TCPSocketImpl extends TCPSocket {
         this.destPort = destPort;
         this.handShakeState = handShakeStates.IDLE;
         this.sequenceNumber = 0;
-
         this.startHandShake();
     }
 
@@ -31,6 +30,7 @@ public class TCPSocketImpl extends TCPSocket {
         while(true){
             switch (this.handShakeState){
                 case IDLE:
+                    System.out.println("idle");
                     int seqNum = random.nextInt(100);
                     DatagramPacket synPacket = packetHandler.createDatagramPacket(true, false, seqNum, 0, null, this.destPort, this.destIP);
                     this.sequenceNumber = seqNum;
@@ -39,9 +39,15 @@ public class TCPSocketImpl extends TCPSocket {
                     this.handShakeState = handShakeStates.WAIT_FOR_SYNACK;
                     break;
                 case WAIT_FOR_SYNACK:
+                    System.out.println("wait for synack");
                     //TODO: Timeout Handling
                     DatagramPacket synackPacket = this.receivePacket();
+                    System.out.println("before");
                     TCPPacketData tcpPacketData = packetHandler.createTCPObject(synackPacket);
+                    System.out.println("after");
+                    System.out.println(tcpPacketData.toString());
+                    System.out.println(tcpPacketData.getSeqNum());
+                    System.out.println(tcpPacketData.getAckNum());
                     if(tcpPacketData.isSYN() && tcpPacketData.getAckNum() == this.sequenceNumber + 1){
                         this.sequenceNumber++;
                         DatagramPacket ackPacket = packetHandler.createDatagramPacket(false, false, this.sequenceNumber, tcpPacketData.getSeqNum() + 1, null, this.destPort, this.destIP);
@@ -50,6 +56,7 @@ public class TCPSocketImpl extends TCPSocket {
                         break;
                     }
                 case CONNECTION_ESTABLISHED:
+                    System.out.println("connection established!");
                     return;
             }
         }

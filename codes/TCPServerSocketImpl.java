@@ -7,7 +7,7 @@ import java.util.Random;
 public class TCPServerSocketImpl extends TCPServerSocket {
     private enum handShakeStates{IDLE, WAIT_FOR_ACK, CONNECTION_ESTABLISHED};
     private handShakeStates handShakeState;
-    private PacketHandler packetHandler;
+    private PacketHandler packetHandler = new PacketHandler();
     private EnhancedDatagramSocket socket;
     private int ackNumber;
     private int seqNumber;
@@ -31,7 +31,11 @@ public class TCPServerSocketImpl extends TCPServerSocket {
         while(true){
             switch(this.handShakeState){
                 case IDLE:
+                    System.out.println("idle");
                     DatagramPacket synPacket = this.receivePacket();
+                    if (synPacket == null)
+                        break;
+                    System.out.println(synPacket);
                     TCPPacketData tcpPacketData = packetHandler.createTCPObject(synPacket);
                     if(tcpPacketData.isSYN()){
                         this.ackNumber = tcpPacketData.getSeqNum();
@@ -44,6 +48,7 @@ public class TCPServerSocketImpl extends TCPServerSocket {
                         break;
                     }
                 case WAIT_FOR_ACK:
+                    System.out.println("waiting for ack");
                     DatagramPacket ackPacket = this.receivePacket();
                     TCPPacketData ackTCPPacketData = packetHandler.createTCPObject(ackPacket);
                     if(!ackTCPPacketData.isSYN() && ackTCPPacketData.getAckNum() == this.seqNumber+1){
@@ -51,6 +56,7 @@ public class TCPServerSocketImpl extends TCPServerSocket {
                     }
                     break;
                 case CONNECTION_ESTABLISHED:
+                    System.out.println("connection established!");
                     this.tcpSocket= new TCPSocketImpl(this.destIP.getHostName(), this.port, this.destIP.getHostName(), this.destPort); // srcIP = destIP
                     return this.tcpSocket;
             }
@@ -58,6 +64,7 @@ public class TCPServerSocketImpl extends TCPServerSocket {
     }
 
     private DatagramPacket receivePacket() throws IOException {
+        System.out.println("called!");
         byte[] buff = new byte[EnhancedDatagramSocket.DEFAULT_PAYLOAD_LIMIT_IN_BYTES];
         DatagramPacket data = new DatagramPacket(buff, buff.length);
         this.socket.receive(data);
