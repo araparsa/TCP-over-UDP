@@ -13,7 +13,7 @@ public abstract class TCPSocket implements CongestionWindowPlotter {
         
     }
 
-    public abstract void send(String pathToFile) throws Exception;
+    public abstract void send(String pathToFile);
 
     public final void sendAndLog(String pathToFile) throws Exception {
         Path filePath = Paths.get(pathToFile);

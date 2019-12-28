@@ -7,21 +7,24 @@ import java.util.Random;
 public class TCPServerSocketImpl extends TCPServerSocket {
     private enum handShakeStates{IDLE, WAIT_FOR_ACK, CONNECTION_ESTABLISHED};
     private handShakeStates handShakeState;
-    private PacketHandler packetHandler = new PacketHandler();
+    private PacketHandler packetHandler;
     private EnhancedDatagramSocket socket;
     private int ackNumber;
     private int seqNumber;
     private int destPort;
     private int port;
     private InetAddress destIP;
-    private Random random = new Random();
-    private TCPSocket tcpSocket = null;
+    private Random random;
+    private TCPSocket tcpSocket;
 
     public TCPServerSocketImpl(int port) throws Exception{
         super(port);
         this.port = port;
-        this.socket= new EnhancedDatagramSocket(port);
+        this.socket = new EnhancedDatagramSocket(port);
         this.handShakeState = handShakeStates.IDLE;
+        this.packetHandler = new PacketHandler();
+        this.random = new Random();
+
         // binding to port
 
     }
