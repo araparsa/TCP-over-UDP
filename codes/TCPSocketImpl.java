@@ -15,8 +15,10 @@ public class TCPSocketImpl extends TCPSocket {
     private InetAddress destIP;
     private int destPort;
     private int sequenceNumber;
+    private int ackNumber;
     private Random random = new Random();
     private EnhancedDatagramSocket socket;
+    private int FLAG_SIZE_IN_BYTE = 112;
 
     public TCPSocketImpl(String srcIP, int srcPort, String destIP, int destPort) throws Exception {
         super(srcIP, srcPort);
@@ -29,32 +31,43 @@ public class TCPSocketImpl extends TCPSocket {
         this.startHandShake();
     }
 
+    public TCPSocketImpl(String srcIP, int srcPort, String destIP, int destPort, int seqNumber, EnhancedDatagramSocket socket) throws Exception {
+        super(srcIP, srcPort);
+        this.srcIP = srcIP;
+        this.srcPort = srcPort;
+        this.destIP = InetAddress.getByName(destIP);;
+        this.destPort = destPort;
+        this.sequenceNumber = seqNumber;
+        this.handShakeState = handShakeStates.CONNECTION_ESTABLISHED;
+        this.socket = socket;
+    }
+
     public void startHandShake() throws IOException {
         while(true){
             switch (this.handShakeState){
                 case IDLE:
                     System.out.println("idle");
                     int seqNum = random.nextInt(100);
-                    DatagramPacket synPacket = packetHandler.createDatagramPacket(true, false, seqNum, 0, null, this.destPort, this.destIP);
+                    DatagramPacket firstHandshakePacket = packetHandler.createDatagramPacket(true, false, seqNum, 0, null, this.destPort, this.destIP);
                     this.sequenceNumber = seqNum;
                     this.socket = new EnhancedDatagramSocket(this.srcPort);
-                    this.socket.send(synPacket);
+                    this.socket.send(firstHandshakePacket);
                     this.handShakeState = handShakeStates.WAIT_FOR_SYNACK;
                     break;
                 case WAIT_FOR_SYNACK:
                     System.out.println("wait for synack");
                     //TODO: Timeout Handling
-                    DatagramPacket synackPacket = this.receivePacket();
+                    DatagramPacket secondHandshakePacket = this.receivePacket();
                     System.out.println("before");
-                    TCPPacketData tcpPacketData = packetHandler.createTCPObject(synackPacket);
+                    TCPPacketData secondHandshakePacketData = packetHandler.createTCPObject(secondHandshakePacket);
                     System.out.println("after");
 //                    System.out.println(tcpPacketData.toString());
-                    System.out.println(tcpPacketData.getSeqNum());
-                    System.out.println(tcpPacketData.getAckNum());
-                    if(tcpPacketData.isSYN() && tcpPacketData.getAckNum() == this.sequenceNumber + 1){
+                    System.out.println(secondHandshakePacketData.getSeqNum());
+                    System.out.println(secondHandshakePacketData.getAckNum());
+                    if(secondHandshakePacketData.isSYN() && secondHandshakePacketData.getAckNum() == this.sequenceNumber + 1){
                         this.sequenceNumber++;
-                        DatagramPacket ackPacket = packetHandler.createDatagramPacket(false, false, this.sequenceNumber, tcpPacketData.getSeqNum() + 1, null, this.destPort, this.destIP);
-                        this.socket.send(ackPacket);
+                        DatagramPacket thirdHandshakePacket = packetHandler.createDatagramPacket(false, false, this.sequenceNumber, secondHandshakePacketData.getSeqNum() + 1, null, this.destPort, this.destIP);
+                        this.socket.send(thirdHandshakePacket);
                         this.handShakeState = handShakeStates.CONNECTION_ESTABLISHED;
                         break;
                     }
@@ -80,7 +93,7 @@ public class TCPSocketImpl extends TCPSocket {
             fileByteArray = new byte[(int)file.length()];
             // Reads up to certain bytes of data from this input stream into an array of bytes.
             fin.read(fileByteArray);
-            System.out.println(fileByteArray.length);
+//            System.out.println(fileByteArray.length);
         }
         catch (FileNotFoundException e) {
             System.out.println("File not found" + e);
@@ -100,9 +113,11 @@ public class TCPSocketImpl extends TCPSocket {
             }
         }
         byte[] sent = new byte[0];
-        while (sent.length < fileByteArray.length){
+        int sentSize = 0;
+        while (sentSize < fileByteArray.length-1){
+            System.out.println("sent size: " + sent.length);
             try {
-                this.sendChunk(sent, fileByteArray);
+                sentSize = this.sendChunk(sentSize, fileByteArray);
             } catch (IOException e) {
                 e.printStackTrace();
             }
@@ -110,17 +125,32 @@ public class TCPSocketImpl extends TCPSocket {
 
     }
 
-    private void sendChunk(byte[] sent, byte[] file) throws IOException {
-        int index = sent.length;
-        byte[] toSend = Arrays.copyOfRange(file, index, index + EnhancedDatagramSocket.DEFAULT_PAYLOAD_LIMIT_IN_BYTES);
-        this.sequenceNumber += EnhancedDatagramSocket.DEFAULT_PAYLOAD_LIMIT_IN_BYTES;
+    private int sendChunk(int fromIndex, byte[] file) throws IOException {
+        int toIndex = (fromIndex + EnhancedDatagramSocket.DEFAULT_PAYLOAD_LIMIT_IN_BYTES - this.FLAG_SIZE_IN_BYTE <= file.length)? fromIndex + EnhancedDatagramSocket.DEFAULT_PAYLOAD_LIMIT_IN_BYTES - this.FLAG_SIZE_IN_BYTE
+                    : file.length-1;
+        System.out.println("from: " + fromIndex + " to: " + toIndex);
+        byte[] toSend = Arrays.copyOfRange(file, fromIndex, toIndex);
+        this.sequenceNumber += 1;
         DatagramPacket chunk = this.packetHandler.createDatagramPacket(false, false, this.sequenceNumber, 0, toSend, this.destPort, this.destIP); //TODO: ack number handling
         this.socket.send(chunk);
+        return fromIndex + toSend.length;
     }
 
     @Override
-    public void receive(String pathToFile) throws Exception {
-        throw new RuntimeException("Not implemented!");
+    public void receive(String pathToFile) throws IOException {
+        byte[] recieverFileByteArray = new byte[0];
+        while(true){
+            DatagramPacket recievedPacket = this.receivePacket();
+            TCPPacketData recievedPacketData = this.packetHandler.createTCPObject(recievedPacket);
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+//            baos.write(recieverFileByteArray);
+            System.out.println(recievedPacketData.getPayload().length);
+            baos.write(recievedPacketData.getPayload());
+            recieverFileByteArray = baos.toByteArray();
+            FileOutputStream fos = new FileOutputStream(pathToFile, true);
+            fos.write(recieverFileByteArray);
+        }
+        
     }
 
     private DatagramPacket receivePacket() throws IOException {

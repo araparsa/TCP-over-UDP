@@ -5,7 +5,8 @@ public class Receiver {
     public static void main(String[] args) throws Exception {
         TCPServerSocket tcpServerSocket = new TCPServerSocketImpl(12345);
         TCPSocket tcpSocket = tcpServerSocket.accept();
-        tcpSocket.receive("receiving.txt");
+        System.out.println("reached here");
+        tcpSocket.receive("short_rec.txt");
         tcpSocket.close();
         tcpServerSocket.close();
     }

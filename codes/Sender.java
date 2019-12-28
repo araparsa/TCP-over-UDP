@@ -7,7 +7,7 @@ public class Sender {
         TCPSocket tcpSocket = new TCPSocketImpl("127.0.0.1",2345, "127.0.0.1", 12345);
         System.out.println("2");
 
-        tcpSocket.send("1MB.txt");
+        tcpSocket.send("short.txt");
         tcpSocket.close();
         System.out.println("3");
 
