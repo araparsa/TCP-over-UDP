@@ -9,8 +9,8 @@ public class TCPServerSocketImpl extends TCPServerSocket {
     private handShakeStates handShakeState;
     private PacketHandler packetHandler;
     private EnhancedDatagramSocket socket;
-    private int ackNumber;
-    private int seqNumber;
+    private int lastSentSeqNumber;
+    private int lastRecievedSeqNumber;
     private int destPort;
     private int port;
     private InetAddress destIP;
@@ -41,21 +41,23 @@ public class TCPServerSocketImpl extends TCPServerSocket {
 //                    System.out.println(firstHandshakePacket);
                     TCPPacketData firstHandshakePacketData = packetHandler.createTCPObject(firstHandshakePacket);
                     if(firstHandshakePacketData.isSYN()){
-                        this.ackNumber = firstHandshakePacketData.getSeqNum()+1;
+                        this.lastRecievedSeqNumber = firstHandshakePacketData.getSeqNum();
+//                        this.ackNumber = firstHandshakePacketData.getSeqNum()+1;
                         this.destIP = firstHandshakePacket.getAddress();
                         this.destPort = firstHandshakePacket.getPort();
-                        this.seqNumber = random.nextInt(100);
-                        DatagramPacket synAckPacket = packetHandler.createDatagramPacket(true, false, this.seqNumber, this.ackNumber, null, this.destPort, this.destIP);
+                        this.lastSentSeqNumber = random.nextInt(100);
+                        DatagramPacket synAckPacket = packetHandler.createDatagramPacket(true, false, this.lastSentSeqNumber, this.lastRecievedSeqNumber + 1, null, this.destPort, this.destIP);
                         this.socket.send(synAckPacket);
                         this.handShakeState = handShakeStates.WAIT_FOR_ACK;
                         break;
                     }
                 case WAIT_FOR_ACK:
-                    System.out.println("waiting for ack");
+                    System.out.println("" +
+                            "waiting for ack");
                     DatagramPacket thirdHandshakePacket = this.receivePacket();
                     TCPPacketData thirdHandshakePacketData = packetHandler.createTCPObject(thirdHandshakePacket);
-                    if(!thirdHandshakePacketData.isSYN() && thirdHandshakePacketData.getAckNum() == this.seqNumber+1 && thirdHandshakePacketData.getSeqNum() == this.ackNumber){
-                        this.seqNumber += 1;
+                    this.lastRecievedSeqNumber = thirdHandshakePacketData.getSeqNum();
+                    if(!thirdHandshakePacketData.isSYN() && thirdHandshakePacketData.getAckNum() == this.lastSentSeqNumber + 1 ){
                         this.handShakeState = handShakeStates.CONNECTION_ESTABLISHED;
                     }
                     break;
@@ -65,7 +67,7 @@ public class TCPServerSocketImpl extends TCPServerSocket {
 //                    System.out.println(this.port);
 //                    System.out.println(this.destIP.getHostName());
 //                    System.out.println(this.destPort);
-                    this.tcpSocket = new TCPSocketImpl(this.destIP.getHostName(), this.port, this.destIP.getHostName(), this.destPort, this.seqNumber, this.socket); // srcIP = destIP
+                    this.tcpSocket = new TCPSocketImpl(this.destIP.getHostName(), this.port, this.destIP.getHostName(), this.destPort, this.lastSentSeqNumber, this.socket); // srcIP = destIP
                     return this.tcpSocket;
             }
         }
@@ -79,7 +81,7 @@ public class TCPServerSocketImpl extends TCPServerSocket {
         return data;
     }
     @Override
-    public void close() throws Exception {
-        throw new RuntimeException("Not implemented!");
+    public void close(){
+        this.socket.close();
     }
 }

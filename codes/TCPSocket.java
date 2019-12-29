@@ -68,5 +68,5 @@ public abstract class TCPSocket implements CongestionWindowPlotter {
         );
     }
 
-    public abstract void close() throws Exception;
+    public abstract void close();
 }
