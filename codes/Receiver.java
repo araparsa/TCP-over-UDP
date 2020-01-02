@@ -6,7 +6,7 @@ public class Receiver {
         TCPServerSocket tcpServerSocket = new TCPServerSocketImpl(12345);
         TCPSocket tcpSocket = tcpServerSocket.accept();
         System.out.println("reached here");
-        tcpSocket.receive("short_rec.txt");
+        tcpSocket.receive("file_REC.txt");
         tcpSocket.close();
         tcpServerSocket.close();
     }

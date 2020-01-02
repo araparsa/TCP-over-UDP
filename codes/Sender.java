@@ -6,10 +6,10 @@ public class Sender {
         System.out.println("1");
         TCPSocket tcpSocket = new TCPSocketImpl("127.0.0.1",2345, "127.0.0.1", 12345);
         System.out.println("2");
-        tcpSocket.send("short.txt");
+        tcpSocket.send("file.txt");
         tcpSocket.close();
         System.out.println("3");
-//        tcpSocket.saveCongestionWindowPlot();
+        tcpSocket.saveCongestionWindowPlot();
         System.out.println("sender runned!");
     }
 }

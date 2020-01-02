@@ -1,10 +1,10 @@
-import javax.xml.crypto.Data;
 import java.io.*;
 import java.net.DatagramPacket;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
-import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.Dictionary;
+import java.util.Hashtable;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
 
@@ -13,6 +13,7 @@ public class TCPSocketImpl extends TCPSocket {
     private enum handShakeStates{IDLE, WAIT_FOR_SYNACK, CONNECTION_ESTABLISHED};
     private enum senderClosingStatuses{WAIT_FOR_ACK, WAIT_FOR_FIN, WAIT_FOR_TIMEOUT, CLOSED};
     private enum recieverClosingStatuses{CLOSED};
+    private enum senderTransmitStatuses{SENDING, RECIEVEING};
     private handShakeStates handShakeState;
     private senderClosingStatuses senderClosingStatus;
     private recieverClosingStatuses recieverClosingStatus;
@@ -22,11 +23,19 @@ public class TCPSocketImpl extends TCPSocket {
     private int destPort;
     private int lastSentSeqNumber;
     private int lastRecievedSequenceNumber;
+    private int lastRecievedAckNumber;
+    private int sendBase;
     private Random random = new Random();
     private EnhancedDatagramSocket socket;
     private int FLAG_SIZE_IN_BYTE = 112;
+    private TimerHandler timerHandler;
+    private int windowSize;
+    private int firstSequenceNumber;
+    private Dictionary packetsMemory = new Hashtable();
 
-    public TCPSocketImpl(String srcIP, int srcPort, String destIP, int destPort) throws Exception {
+
+
+    public TCPSocketImpl(String srcIP, int srcPort, String destIP, int destPort) throws Exception { //sender
         super(srcIP, srcPort);
         this.srcIP = srcIP;
         this.srcPort = srcPort;
@@ -34,6 +43,8 @@ public class TCPSocketImpl extends TCPSocket {
         this.destPort = destPort;
         this.handShakeState = handShakeStates.IDLE;
         this.lastSentSeqNumber = 0;
+        this.timerHandler = new TimerHandler();
+        this.windowSize = 15;
         this.startHandShake();
     }
 
@@ -59,6 +70,7 @@ public class TCPSocketImpl extends TCPSocket {
                     System.out.println("last seq sent: " + this.lastSentSeqNumber);
                     this.socket = new EnhancedDatagramSocket(this.srcPort);
                     this.socket.send(firstHandshakePacket);
+                    this.firstSequenceNumber = seqNum;
                     this.handShakeState = handShakeStates.WAIT_FOR_SYNACK;
                     break;
                 case WAIT_FOR_SYNACK:
@@ -68,6 +80,7 @@ public class TCPSocketImpl extends TCPSocket {
                     System.out.println("before");
                     TCPPacketData secondHandshakePacketData = packetHandler.createTCPObject(secondHandshakePacket);
                     this.lastRecievedSequenceNumber = secondHandshakePacketData.getSeqNum();
+                    this.lastRecievedAckNumber = secondHandshakePacketData.getAckNum();
                     System.out.println("last recieved seq: " + this.lastRecievedSequenceNumber);
 
                     System.out.println("after");
@@ -83,19 +96,15 @@ public class TCPSocketImpl extends TCPSocket {
                         break;
                     }
                 case CONNECTION_ESTABLISHED:
+                    this.sendBase = this.lastSentSeqNumber + 1; // or lastAcked
                     System.out.println("connection established!");
                     return;
             }
         }
     }
 
-    @Override
-    public void send(String pathToFile){
-        if (this.handShakeState != handShakeStates.CONNECTION_ESTABLISHED){
-            System.out.println("Connection has not been established yet! couldn't send file to reciever.");
-            return;
-        }
-        File file = new File(pathToFile);
+    private byte[] readFileToByteArray(String path){
+        File file = new File(path);
         FileInputStream fin = null;
         byte[] fileByteArray = null;
         try {
@@ -123,15 +132,92 @@ public class TCPSocketImpl extends TCPSocket {
                 System.out.println("Error while closing stream: " + ioe);
             }
         }
-        byte[] sent = new byte[0];
+        return fileByteArray;
+    }
+
+    private void retransmit(int seqNumber, byte[] file){
+        this.timerHandler.start(seqNumber);
+        System.out.println("retransmit");
+        int fromIndex = (int)this.packetsMemory.get(seqNumber);
+        int toIndex = (fromIndex + EnhancedDatagramSocket.DEFAULT_PAYLOAD_LIMIT_IN_BYTES - this.FLAG_SIZE_IN_BYTE <= file.length)? fromIndex + EnhancedDatagramSocket.DEFAULT_PAYLOAD_LIMIT_IN_BYTES - this.FLAG_SIZE_IN_BYTE
+                : file.length-1;
+        byte[] toSend = Arrays.copyOfRange(file, fromIndex, toIndex);
+        try {
+            DatagramPacket chunk = this.packetHandler.createDatagramPacket(false, false, this.lastSentSeqNumber, this.lastRecievedSequenceNumber + 1, toSend, this.destPort, this.destIP); //TODO: ack number handled with storing last recieved paccket seq number
+            this.socket.send(chunk);
+
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    @Override
+    public void send(String pathToFile){
+        if (this.handShakeState != handShakeStates.CONNECTION_ESTABLISHED){
+            System.out.println("Connection has not been established yet! couldn't send file to reciever.");
+            return;
+        }
+        byte[] fileByteArray = this.readFileToByteArray(pathToFile);
+//        byte[] sent = new byte[0];
         int sentSize = 0;
+        int lastSeqNumber = fileByteArray.length/(EnhancedDatagramSocket.DEFAULT_PAYLOAD_LIMIT_IN_BYTES - this.FLAG_SIZE_IN_BYTE) + firstSequenceNumber;
+        Thread recieveAckThread = new Thread(new Runnable() {
+            @Override
+            public void run() {
+              while(true){
+                  try {
+                      DatagramPacket recievedPacket = receivePacket();
+                      if (recievedPacket==null){
+                          continue;
+                      }
+                      System.out.println("not null");
+                      TCPPacketData recievedPacketData = packetHandler.createTCPObject(recievedPacket);
+                      if (recievedPacketData.getAckNum() > lastRecievedAckNumber){
+                        System.out.println("sender recieve thread: last recieved ack number" + lastRecievedAckNumber);
+                        System.out.println("sender recieve thread: last packet ack number" + recievedPacketData.getAckNum());
+                        lastRecievedAckNumber = recievedPacketData.getAckNum();
+                        lastRecievedSequenceNumber = recievedPacketData.getSeqNum();
+                        sendBase = recievedPacketData.getAckNum();
+                        if (lastSentSeqNumber>lastRecievedAckNumber || lastSentSeqNumber==lastRecievedAckNumber){
+                            timerHandler.start(lastRecievedAckNumber);
+                        }
+                        System.out.println("last seq number: " + lastSeqNumber);
+                        if (lastRecievedAckNumber == lastSeqNumber)
+                            break;
+                      }
+                  } catch (IOException e) {
+                      e.printStackTrace();
+                  }
+              }
+            }
+         });
+        recieveAckThread.start();
+
         while (sentSize < fileByteArray.length-1){
-            System.out.println("sent size: " + sent.length);
+            System.out.println("timeout " + this.timerHandler.timeout);
+
+            if (this.timerHandler.isTimeout()){
+                this.retransmit(this.timerHandler.getSequenceNumber(), fileByteArray);
+            }
+
+            if ((lastSentSeqNumber - sendBase) == windowSize){
+                continue;
+            }
+
             try {
                 sentSize = this.sendChunk(sentSize, fileByteArray);
+
             } catch (IOException e) {
                 e.printStackTrace();
             }
+        }
+
+        this.timerHandler.cancelTimer();
+
+        try {
+            recieveAckThread.join();
+        } catch (InterruptedException e) {
+            e.printStackTrace();
         }
         // finishiing the connection after file transmit completed
         this.senderFinsishConnection();
@@ -140,13 +226,15 @@ public class TCPSocketImpl extends TCPSocket {
 
     private int sendChunk(int fromIndex, byte[] file) throws IOException {
         int toIndex = (fromIndex + EnhancedDatagramSocket.DEFAULT_PAYLOAD_LIMIT_IN_BYTES - this.FLAG_SIZE_IN_BYTE <= file.length)? fromIndex + EnhancedDatagramSocket.DEFAULT_PAYLOAD_LIMIT_IN_BYTES - this.FLAG_SIZE_IN_BYTE
-                    : file.length-1;
+                    : file.length;
         System.out.println("from: " + fromIndex + " to: " + toIndex);
         byte[] toSend = Arrays.copyOfRange(file, fromIndex, toIndex);
         this.lastSentSeqNumber += 1;
         System.out.println("last seq sent: " + this.lastSentSeqNumber);
         DatagramPacket chunk = this.packetHandler.createDatagramPacket(false, false, this.lastSentSeqNumber, this.lastRecievedSequenceNumber + 1, toSend, this.destPort, this.destIP); //TODO: ack number handled with storing last recieved paccket seq number 
         this.socket.send(chunk);
+        this.packetsMemory.put(this.lastSentSeqNumber, fromIndex);
+        this.timerHandler.start(this.lastSentSeqNumber);
         return fromIndex + toSend.length;
     }
 
@@ -166,6 +254,7 @@ public class TCPSocketImpl extends TCPSocket {
             e.printStackTrace();
             return;
         }
+
         while(true){
             switch (this.senderClosingStatus){
                 case WAIT_FOR_ACK:
@@ -178,7 +267,7 @@ public class TCPSocketImpl extends TCPSocket {
                         recievedPacketData = this.packetHandler.createTCPObject(recievedPacket);
                         if (recievedPacketData.getSeqNum() > this.lastRecievedSequenceNumber)
                             this.lastRecievedSequenceNumber = recievedPacketData.getSeqNum();
-                          System.out.println("last recieved seq: " + this.lastRecievedSequenceNumber);
+                        System.out.println("last recieved seq: " + this.lastRecievedSequenceNumber);
                     } catch (IOException e) {
                         e.printStackTrace();
 //                        return;
@@ -193,12 +282,21 @@ public class TCPSocketImpl extends TCPSocket {
                     System.out.println("close: wait for fin");
                     DatagramPacket newRecievedPacket = null;
                     TCPPacketData newRecievedPacketData = null;
+                    System.out.println("before");
                     try {
+                        System.out.println("in1");
                         newRecievedPacket  = this.receivePacket();
+//                        if (newRecievedPacket == null)
+//                            break;
+                        System.out.println("in2");
                         newRecievedPacketData = this.packetHandler.createTCPObject(newRecievedPacket);
                     } catch (IOException e) {
                         e.printStackTrace();
                     }
+                    System.out.println("after");
+                    System.out.println("seq: " + newRecievedPacketData.getSeqNum());
+                    System.out.println("ack " + newRecievedPacketData.getAckNum());
+
                     if (newRecievedPacket != null && newRecievedPacketData.getAckNum() == this.lastSentSeqNumber + 1){
                         try {
                             this.lastRecievedSequenceNumber = newRecievedPacketData.getSeqNum();
@@ -214,6 +312,7 @@ public class TCPSocketImpl extends TCPSocket {
                             e.printStackTrace();
                         }
                     }
+                    break;
                 case WAIT_FOR_TIMEOUT:
                     System.out.println("close: wait for timeout");
                     // wait 10 seconds
@@ -225,6 +324,7 @@ public class TCPSocketImpl extends TCPSocket {
                     } catch (InterruptedException e) {
                         e.printStackTrace();
                     }
+                    break;
             }
         }
     }
@@ -246,13 +346,13 @@ public class TCPSocketImpl extends TCPSocket {
 //            System.out.println(recievedPacketData.getPayload().length);
             if (recievedPacketData.getPayload() == null)
                 break;
+            DatagramPacket ackPacket = this.packetHandler.createDatagramPacket(false, false, this.lastSentSeqNumber+1, this.lastRecievedSequenceNumber+1, null, this.destPort, this.destIP);
+            this.socket.send(ackPacket);
             baos.write(recievedPacketData.getPayload());
             recieverFileByteArray = baos.toByteArray();
             FileOutputStream fos = new FileOutputStream(pathToFile, true);
             fos.write(recieverFileByteArray);
         }
-
-        
     }
 
     private DatagramPacket receivePacket() throws IOException {
@@ -274,6 +374,7 @@ public class TCPSocketImpl extends TCPSocket {
                 System.out.println("last seq sent: " + this.lastSentSeqNumber);
                 DatagramPacket recieverFinPacket = this.packetHandler.createDatagramPacket(false, true, this.lastSentSeqNumber + 1, this.lastRecievedSequenceNumber + 1, null, this.destPort, this.destIP);
                 this.socket.send(recieverFinPacket);
+                System.out.println("sent fin packet");
                 this.lastSentSeqNumber += 1;
                 while (true) {
                     DatagramPacket recievedPacket = this.receivePacket();
